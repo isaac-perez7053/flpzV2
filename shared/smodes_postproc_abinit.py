@@ -1,270 +1,153 @@
-#!/usr/bin/env python3
 import numpy as np
-import xml.etree.ElementTree as ET
-import sys
+import os
+from pathlib import Path
+
 np.set_printoptions(precision=10)
-#takes as input an smodes input file and irrep name and creates the distortions needed to do a symmetry adapted modes calculation
-#we expect a POSCAR file in this directory to get the header from
-targetIrrep=str(sys.argv[1])
 
-headerFile="SMODES_"+targetIrrep+"/headerFile_"+targetIrrep+".dat"
-h=open(headerFile)
-headerLines=h.readlines()
-h.close()
-Irrep=headerLines[0].split()[1]
-NumSAM=int(headerLines[1].split()[1])
-NumAtomTypes=int(headerLines[2].split()[1])
-NumAtoms=int(headerLines[3].split()[1])
-DispMag=float(headerLines[4].split()[1])
+def read_header_file(target_irrep):
+    """Read the header file and extract key data."""
+    header_file = Path.cwd() / f"SMODES_{target_irrep}" / f"headerFile_{target_irrep}.dat"
+    
+    if not header_file.exists():
+        raise FileNotFoundError(f"Header file not found: {header_file}")
 
-print("Irrep: "+Irrep)
-print("NumSAM: "+str(NumSAM))
-print("NumAtomTypes: "+str(NumAtomTypes))
-print("NumAtoms: "+str(NumAtoms))
-print("DispMag: "+str(DispMag))
+    with open(header_file, 'r') as f:
+        header_lines = f.readlines()
 
-typeList=[]
-typeCount=[]
-massList=[]
-for lineNum in range(5,5+NumAtomTypes):
-	words = headerLines[lineNum].split()
-	typeList.append(words[0])
-	typeCount.append(int(words[1]))
-	if words[2]=="MASS":
-		print("You forgot to set the mass in "+headerFile+" (in AMU)! We can't go any further.")
-		print("Quitting...")
-		quit()
-	else:
-		massList.append(float(words[2]))
-	
-typeText="Unit cell consists of "
-for i in range(len(massList)):
-	typeText=typeText+str(typeCount[i])+" "+str(typeList[i])+" atoms of mass "+str(massList[i])+", "
+    irrep = header_lines[0].split()[1]
+    num_sam = int(header_lines[1].split()[1])
+    num_atom_types = int(header_lines[2].split()[1])
+    num_atoms = int(header_lines[3].split()[1])
+    disp_mag = float(header_lines[4].split()[1])
 
-print(typeText[:-2])
+    type_list, type_count, mass_list = [], [], []
+    for line in header_lines[5:5 + num_atom_types]:
+        words = line.split()
+        type_list.append(words[0])
+        type_count.append(int(words[1]))
+        mass_list.append(float(words[2]) if words[2] != "MASS" else None)
 
-#we're just going to leave the first matrix blank so we don't have to reindex the files
-SAMmat=np.zeros((NumAtoms,3,NumSAM+1))
-SAMatomLabel=[]
-modeIndex=0
-atomInd=0
-for lineNum in range(5+NumAtomTypes,len(headerLines)):
-	words = headerLines[lineNum].split()
-	if words[0][0:3]=="SAM":
-		modeIndex=modeIndex+1
-		atomInd=0
-		SAMatomLabel.append(words[1])
-	else:
-		SAMmat[atomInd,0,modeIndex]=float(words[0])
-		SAMmat[atomInd,1,modeIndex]=float(words[1])
-		SAMmat[atomInd,2,modeIndex]=float(words[2])
-		atomInd=atomInd+1
+    if None in mass_list:
+        raise ValueError(f"Mass not set in {header_file}! Cannot proceed.")
 
-#now get the forces from the runs
+    return irrep, num_sam, num_atom_types, num_atoms, disp_mag, type_list, type_count, mass_list, header_lines
 
-#its one bigger because we have the initial forces we're going to subtract off
-forceMat_raw=np.zeros((NumAtoms,3,NumSAM+1))
-for SAM in range(NumSAM+1):
-	thisOUTCAR="SMODES_"+targetIrrep+"/dist_"+str(SAM)+"/dist_"+str(SAM)+".abo"
-	f=open(thisOUTCAR)
-	OUTCARLines=f.readlines()
-	f.close()	
-	lineStart=0
-	atomInd=0
-	for lineNum in range(len(OUTCARLines)):
-		words = OUTCARLines[lineNum].split()
-		if len(words)>=1:
-			if (words[0]=="cartesian") and (words[1]=="forces" ) and (words[2]=="(eV/Angstrom)" ):
-				lineStart=lineNum+1
-				break
-	for lineNum in range(lineStart,lineStart+NumAtoms):
-		words = OUTCARLines[lineNum].split()
-		forceMat_raw[atomInd,0,SAM]=float(words[1])
-		forceMat_raw[atomInd,1,SAM]=float(words[2])
-		forceMat_raw[atomInd,2,SAM]=float(words[3])
-		atomInd=atomInd+1
+def parse_sam_data(header_lines, num_atom_types, num_atoms, num_sam):
+    """Parse symmetry-adapted mode (SAM) data from header lines."""
+    sam_mat = np.zeros((num_atoms, 3, num_sam + 1))
+    sam_atom_label = []
 
-#subtract off initial forces and now fix the indexing to go from zero again
-forceList=np.zeros((NumAtoms,3,NumSAM))
-for SAM in range(NumSAM):
-	for i in range(NumAtoms):
-		for j in range(3):
-			forceList[i,j,SAM]=forceMat_raw[i,j,SAM+1]-forceMat_raw[i,j,0]			
-#build force matrix
-forceMat=np.zeros((NumSAM,NumSAM))
-SAMmat=SAMmat[:,:,1:]
-for f in range(NumSAM):
-	for s in range(NumSAM):
-		forceVal=np.multiply(forceList[:,:,f],SAMmat[:,:,s])
-		forceMat[f,s]=forceVal.sum()
-#build mass matrix
-#for m in range(NumSAM):
-#	thisMass=0
-#	for n in range(len(typeList)):
-#		if SAMatomLabel[m]==typeList[n]:
-#			thisMass=massList[n]
-#	if thisMass==0:
-#		print("Problem with building mass matrix. Quitting...")
-#		quit()
-#	else:
-#		M[m,m]=np.sqrt(thisMass)
+    mode_index, atom_ind = 0, 0
+    for line in header_lines[5 + num_atom_types:]:
+        words = line.split()
+        if words[0].startswith("SAM"):
+            mode_index += 1
+            atom_ind = 0
+            sam_atom_label.append(words[1])
+        else:
+            sam_mat[atom_ind, 0, mode_index] = float(words[0])
+            sam_mat[atom_ind, 1, mode_index] = float(words[1])
+            sam_mat[atom_ind, 2, mode_index] = float(words[2])
+            atom_ind += 1
 
-#make a vector thats the list of masses in order of the typelist
-massVec=np.zeros((NumSAM))
-for m in range(NumSAM):
-	thisMass=0
-	for n in range(len(typeList)):
-		if SAMatomLabel[m]==typeList[n]:
-			thisMass=massList[n]
-			massVec[m]=thisMass
-	if thisMass==0:
-		print("Problem with building mass matrix. Quitting...")
-		quit()
+    return sam_mat[:, :, 1:], sam_atom_label
 
-MM=np.zeros((NumSAM,NumSAM))
-for m in range(NumSAM):
-	for n in range(NumSAM):
-		MM[m,n]=np.sqrt(massVec[m])*np.sqrt(massVec[n])
-#MM=np.matmul(M,npM)
-#divide by disp mag to get fc matrix
+def read_forces(num_atoms, num_sam, target_irrep):
+    """Read force data from the output files."""
+    force_mat_raw = np.zeros((num_atoms, 3, num_sam + 1))
+    for sam in range(num_sam + 1):
+        outcar_file = Path.cwd() / f"SMODES_{target_irrep}" / f"dist_{sam}" / f"dist_{sam}.abo"
+        
+        if not outcar_file.exists():
+            raise FileNotFoundError(f"OUTCAR file not found: {outcar_file}")
 
-FC_mat=-forceMat/DispMag
+        with open(outcar_file, 'r') as f:
+            lines = f.readlines()
 
-#symmetrize
+        # Find start of forces
+        line_start = next(
+            i + 1 for i, line in enumerate(lines)
+            if "cartesian forces" in line
+        )
 
-FC_mat=(FC_mat+np.transpose(FC_mat))/2.0
-Dyn_mat=np.divide(FC_mat,MM)
-#solve for the eigensystem, evals are still in SAM basis	
-FCevals, FCevecs_SAM = np.linalg.eig(FC_mat)
-Dynevals, Dynevecs_SAM = np.linalg.eig(Dyn_mat)
-#convert Dyn evals to frequency in THz
-eV_to_J=1.602177E-19
-ang_to_m=1.0E-10
-AMU_to_kg=1.66053E-27
-c= 2.9979458E10 #speed of light
-#c= 3E10 #speed of light
-#make it so imaginary frequencies look negative
-Freq_THz=np.multiply(np.sign(Dynevals),np.sqrt(np.absolute(Dynevals)*eV_to_J/(ang_to_m**2*AMU_to_kg))*1.0E-12)
-FC_eval=np.multiply(np.sign(FCevals),np.sqrt(np.absolute(FCevals)))
+        for i, line in enumerate(lines[line_start:line_start + num_atoms]):
+            words = line.split()
+            force_mat_raw[i, :, sam] = list(map(float, words[1:4]))
 
-#sort them greatest to least 
-idx_Dyn = np.flip(Freq_THz.argsort()[::-1] ) 
-Freq_THz = Freq_THz[idx_Dyn]/(2*np.pi) #convert from 2piTHz
-Dynevecs_SAM = Dynevecs_SAM[:,idx_Dyn]
+    return force_mat_raw
 
-#Freq_THz = Freq_THz/(2*np.pi) #convert from 2piTHz (did this above)
-#convert to cm^-1 
-Freq_cm=Freq_THz*1.0E12/(c)
+def compute_force_matrix(force_mat_raw, sam_mat, num_atoms, num_sam):
+    """Compute the force matrix."""
+    force_list = force_mat_raw[:, :, 1:] - force_mat_raw[:, :, [0]]
+    force_mat = np.zeros((num_sam, num_sam))
+    
+    for f in range(num_sam):
+        for s in range(num_sam):
+            force_val = np.multiply(force_list[:, :, f], sam_mat[:, :, s])
+            force_mat[f, s] = force_val.sum()
 
+    return force_mat
 
-idx_FC = np.flip(FC_eval.argsort()[::-1] ) 
-FC_eval = FC_eval[idx_FC]
-FCevecs_SAM = FCevecs_SAM[:,idx_FC]
+def compute_mass_matrix(type_list, mass_list, sam_atom_label, num_sam):
+    """Compute the mass matrix."""
+    mass_vec = np.array([
+        mass_list[type_list.index(label)] for label in sam_atom_label
+    ])
 
-#print(Dyn_mat)
-#print(Dynevecs_SAM[:,0]) #this one is the eigenvector, with second index corresponding to eig index
-#print(Dynevecs_SAM[0,:])
+    mm = np.sqrt(np.outer(mass_vec, mass_vec))
+    return mm
 
-#now convert evecs to real space basis
-Dynevecs=np.zeros((NumAtoms,3,NumSAM))
-Fcevecs=np.zeros((NumAtoms,3,NumSAM))
-for evec in range(NumSAM):
-	realDynEvec=np.zeros((NumAtoms,3))
-	realFCEvec=np.zeros((NumAtoms,3))
-	for s in range(NumSAM):
-		#realDynEvec=realDynEvec+Dynevecs_SAM[evec,s]*SAMmat[:,:,s]#wrong bc you used 1st index as eig ind	
-		#realFCEvec=realFCEvec+FCevecs_SAM[evec,s]*SAMmat[:,:,s]	#wrong bc you used 1st index as eig ind
-		realDynEvec=realDynEvec+Dynevecs_SAM[s,evec]*SAMmat[:,:,s]	
-		realFCEvec=realFCEvec+FCevecs_SAM[s,evec]*SAMmat[:,:,s]	
-	Dynevecs[:,:,evec]=realDynEvec
-	Fcevecs[:,:,evec]=realFCEvec
+def calculate_dynamical_matrix(force_mat, mass_matrix):
+    """Calculate the dynamical matrix and its eigenvalues/eigenvectors."""
+    dyn_mat = force_mat / mass_matrix
+    evals, evecs = np.linalg.eig(dyn_mat)
+    return evals, evecs, dyn_mat
 
-#make mass matrix for defining reduced mass and phonon displacement eigenvectors
-MassCol=np.zeros((NumAtoms,3))
-atomind=0
-for atype in range(NumAtomTypes):
-	for j in range(typeCount[atype]):
-		MassCol[atomind,:]=np.sqrt(massList[atype])
-		atomind=atomind+1
+def write_results(target_irrep, freq_thz, freq_cm, dynevecs):
+    """Write results to files in the current working directory."""
+    output_dir = Path.cwd() / f"SMODES_{target_irrep}"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-#define phonon displacement eigenvectors, u
-#these are solutions to the generalized eigenvalue problem with
-#omega^2M^(1/2)u=M^(-1/2)Fu, where F is the FC matrix and
-#M^(1/2) is a matrix with sqrt mass along the diagonal. 
-#They are equal to M^(-1/2)e, where
-#e is a phonon eigenvector of the dynamical matrix. These
-#are the things you'd freeze in to find phonon frequencies
-#from displacement curvature (with help from reduced mass):
-#frequency=sqrt(deriv2/(redmass*AMU_to_kg)); %in 2piTHz
-#frequency=frequency/(2*pi*3e10); %in cm^-1
+    with open(output_dir / "DynFreqs.dat", 'w') as f:
+        f.write("THz \t cm^-1 \n")
+        for thz, cm in zip(freq_thz, freq_cm):
+            f.write(f"{thz:.2f}\t{cm:.2f}\n")
 
-PhonDispEigs=np.zeros((NumAtoms,3,NumSAM))
-redmassvec=np.zeros((NumAtoms,1)) #the reduced mass associated with the phonon mode
-for mode in range(NumSAM):
-	PhonDispEigs[:,:,mode]=np.divide(Dynevecs[:,:,mode],MassCol)
-	magSquared=np.sum(np.sum(np.multiply(PhonDispEigs[:,:,mode],PhonDispEigs[:,:,mode])))
-	redmassvec[mode]=1.0/magSquared
-	#normalize the new eigenvector
-	PhonDispEigs[:,:,mode]=PhonDispEigs[:,:,mode]/np.sqrt(magSquared)
+    with open(output_dir / "DynEvecs.dat", 'w') as f:
+        for evec in dynevecs:
+            f.write("\t".join(map("{:.5f}".format, evec.flatten())) + "\n")
 
-#now write these to files and put them in the original directory
+def process_smodesPost(target_irrep):
+    """Process SMODES data and generate outputs."""
+    irrep, num_sam, num_atom_types, num_atoms, disp_mag, type_list, type_count, mass_list, header_lines = read_header_file(target_irrep)
+    sam_mat, sam_atom_label = parse_sam_data(header_lines, num_atom_types, num_atoms, num_sam)
+    force_mat_raw = read_forces(num_atoms, num_sam, target_irrep)
 
-DynFreqsFileName="SMODES_"+targetIrrep+"/DynFreqs.dat"
-DynevecFileName="SMODES_"+targetIrrep+"/DynEvecs.dat"
-FCevalFileName="SMODES_"+targetIrrep+"/FCEvals.dat"
-FCevecFileName="SMODES_"+targetIrrep+"/FCEvecs.dat"
-PhonDispFileName="SMODES_"+targetIrrep+"/PhonDispVecs.dat"
-RedMassFileName="SMODES_"+targetIrrep+"/RedMass.dat"
+    force_mat = compute_force_matrix(force_mat_raw, sam_mat, num_atoms, num_sam)
+    mass_matrix = compute_mass_matrix(type_list, mass_list, sam_atom_label, num_sam)
+    evals, evecs, dyn_mat = calculate_dynamical_matrix(force_mat, mass_matrix)
 
-#write the Dynmat files
-Dval=open(DynFreqsFileName,'w')
-Dvec=open(DynevecFileName,'w')
-Dval.write("THz \t cm^-1 \n")
-#Dv.write("Irrep: "+str(targetIrrep)+"\n")
-for mode in range(NumSAM):
-	valstring="%.2f \t %.2f \n" % (Freq_THz[mode], Freq_cm[mode])
-	Dval.write(valstring)
-	for atom in range(NumAtoms):
-		for j in range(3):
-			Dvec.write("%.5f \t"%(Dynevecs[atom,j,mode]))
-#			print("Dynevecs["+str(atom)+","+str(j)+","+str(mode)+"] = "+str(Dynevecs[atom,j,mode]))
-	Dvec.write("\n")
-Dval.close()
-Dvec.close()
+    freq_thz = np.sign(evals) * np.sqrt(np.abs(evals)) * 1e-12
+    freq_cm = freq_thz * 1e12 / (2.9979e10)
 
-#write the FC files
-FCval=open(FCevalFileName,'w')
-FCvec=open(FCevecFileName,'w')
-FCval.write("eV/A^2 \n")
-#Dv.write("Irrep: "+str(targetIrrep)+"\n")
-for mode in range(NumSAM):
-	valstring="%.2f \n" % (FC_eval[mode])
-	FCval.write(valstring)
-	for atom in range(NumAtoms):
-		for j in range(3):
-			FCvec.write("%.5f \t"%(Fcevecs[atom,j,mode]))
-	
-	FCvec.write("\n")
+    print("Mass Matrix:")
+    print(mass_matrix)
+    print("\nForce Matrix:")
+    print(force_mat)
+    print("\nDynamical Matrix:")
+    print(dyn_mat)
 
-FCval.close()
-FCvec.close()
+    write_results(target_irrep, freq_thz, freq_cm, evecs)
 
-#write the phonon dist amplitude files and reduced masses
-Phonvec=open(PhonDispFileName,'w')
-Redmass=open(RedMassFileName,'w')
-Redmass.write("AMU \n")
-for mode in range(NumSAM):
-	valstring="%.4f \n" % (redmassvec[mode])
-	Redmass.write(valstring)
+def main():
+    import sys
+    if len(sys.argv) < 2:
+        print("Usage: python smodes_postproc_abinit.py <target_irrep>")
+        sys.exit(1)
 
-	for atom in range(NumAtoms):
-		for j in range(3):
-			Phonvec.write("%.5f \t"%(PhonDispEigs[atom,j,mode]))
-	
-	Phonvec.write("\n")
+    target_irrep = sys.argv[1]
+    process_smodesPost(target_irrep)
 
-Phonvec.close()
-Redmass.close()
-
-
+if __name__ == "__main__":
+    main()
 

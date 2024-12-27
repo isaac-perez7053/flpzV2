@@ -1,9 +1,9 @@
 import shutil
 import re
 import os
-from unit_cell import UnitCell
+from pathlib import Path
 
-# TODO: I may want to place this class into its own file
+# TODO: I want this class to be integrated with the UnitCell class where the UnitCell class has a choice to input an abinit file and output all of its attributes
 class AbinitFile: 
     """
     Class that primarily deals with the extraction of the molecule from the abinit file and initializes the UnitCell
@@ -16,10 +16,12 @@ class AbinitFile:
         self.unit_cell = None
         self.parse_file()
 
-    """
-    Extract all lines from the Abinit file
-    """
     def parse_file(self): 
+        """
+        Extracts all lines from the Abinit file
+        """
+        from shared.unit_cell_module import UnitCell # Avoids circular logic with the imports
+
         temp_filepath = self.filepath + ".temp"
         shutil.copy(self.filepath, temp_filepath)
 
@@ -147,7 +149,7 @@ class AbinitFile:
             header_file.writelines(lines)
         
         # Create UnitCell instance 
-        self.unit_cell = UnitCell(acell, rprim, coordinates, coord_type, num_atoms, atom_types, znucl, typat)
+        self.unit_cell = UnitCell(acell, rprim, coordinates, coord_type, num_atoms, atom_types, znucl, typat, header_path)
 
         # Remove temporary file
         os.remove(temp_filepath)
@@ -155,9 +157,6 @@ class AbinitFile:
     def __repr__(self):
         return f"Molecule(unit_cell={self.unit_cell})"
     
+    
 
-if __name__ == "__main__":
-    # For standalone execution and debugging
-    abinit_file = AbinitFile(file_path = "example_file.abi")
-    print(abinit_file.unit_cell)
     

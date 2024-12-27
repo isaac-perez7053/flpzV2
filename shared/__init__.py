@@ -1,5 +1,5 @@
 from .abinit_unit_cell import AbinitUnitCell
-from .unit_cell import UnitCell
+from .abinit_unit_cell import UnitCell
 from .abinit_file import AbinitFile
 
 __all__ = ['AbinitUnitCell', 'UnitCell', 'AbinitFile']
