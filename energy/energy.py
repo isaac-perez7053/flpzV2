@@ -3,14 +3,15 @@ import subprocess
 import os
 import re
 from pathlib import Path
-from shared import AbinitFile, AbinitUnitCell, UnitCell
-import shared.smodes_postproc_abinit, shared.smodes_symmadapt_abinit
-from .. import generate_boilerplate, run_loop_smodes_script
+from shared.boilerplate_generation import BoilerplateGenerator
+from shared.smodes_processor import SmodesProcessor
 
-def parse_inputfile(input_file):
-    global num_datapoints, name, genstruc, min_amp, max_amp, sbatch_preamble
 
-    with open(input_file, 'r') as f: 
+def parse_inputfile(filepath):
+    """
+    Returns the variables contained in the flpz input file
+    """
+    with open(filepath, 'r') as f: 
         lines = f.readlines()
 
         
@@ -30,142 +31,106 @@ def parse_inputfile(input_file):
 
     # Extract name
     name = None
-    for i, line in enumerate(lines):
+    for line in lines:
         if line.strip().startswith('name'):
-            match = re.search(r"\b[a-zA-Z0-9]+\b", line.strip())
+            match = re.search(r"name\s+([a-zA-Z0-9]+)", line)
             if match:
-                name = match.group()
-                break  
+                name = match.group(1)  # Get the alphanumeric value after 'name'
+                break
 
     if name is None:
         raise Exception("Name is missing in the input file!")
         
     # Extract genstruc abinit file name
     genstruc = None
-    for i, line in enumerate(lines):
+    for line in lines:
         if line.strip().startswith('genstruc'):
-            match = re.search(r"\b[a-zA-Z]+\b", line.strip())
+            match = re.search(r"genstruc\s+([a-zA-Z0-9_.-]+)", line)
             if match:
-                genstruc = match.group()
-                break 
-        
+                genstruc = match.group(1)  # Capture the filename after 'genstruc'
+                break
+
     if genstruc is None:
         raise Exception("The Abinit file (genstruc) is missing in the input file!")
+
         
-    # Extract the minimum amplitude 
+    # Extract the minimum amplitude
     min_amp = None
-    for i, line in enumerate(lines):
+    for line in lines:
         if line.strip().startswith('min'):
-            match = re.search(r"^\s*[-+]?[0-9]*\.?[0-9]+", line.strip())
+            match = re.search(r"min\s+([-+]?\d*\.?\d+)", line)
             if match:
-                min_amp = match.group()
+                min_amp = match.group(1)  # Get the numeric value after 'min'
                 break
-        
+
     if min_amp is None:
         raise Exception("The min_amp (min) is missing in the input file!")
-        
-    # Extract the maximum amplitude 
+
+    # Extract the maximum amplitude
     max_amp = None
-    for i, line in enumerate(lines):
+    for line in lines:
         if line.strip().startswith('max'):
-            match = re.search(r"^\s*[-+]?[0-9]*\.?[0-9]+", line.strip())
-            if match: 
-                max_amp = match.group()
+            match = re.search(r"max\s+([-+]?\d*\.?\d+)", line)
+            if match:
+                max_amp = match.group(1)  # Get the numeric value after 'max'
                 break
+
+    if max_amp is None:
+        raise Exception("The max_amp (max) is missing in the input file!")
         
-    if max_amp is None: 
-        raise Exception("the max_amp (max) is missing in the input file!")
-        
-    # Extract the sbatch preamble 
+    # Extract the sbatch preamble
     sbatch_preamble = None
-    for i, line in enumerate(lines):
+    for line in lines:
         if line.strip().startswith('sbatch_preamble'):
-            match = re.search(r"^[\w,\s-]+\.[A-Za-z]{2,}$", line.strip())
-            if match: 
-                sbatch_preamble = match.group()
+            match = re.search(r"sbatch_preamble\s+([a-zA-Z0-9_.-]+)", line)
+            if match:
+                sbatch_preamble = match.group(1)  # Capture the filename after 'sbatch_preamble'
                 break
-        
+
     if sbatch_preamble is None:
         raise Exception("sbatch preamble is missing in the input file!")
 
-
-# TODO: The path the file isn't dynamic and msut be fixed. 
-def run_smodes_symmadapt(smodes_input, irrep):
-    """
-    Runs the smodes_symmadapt_abinit script dynamically located relative to the shared directory,
-    ensuring all output files are placed in the current working directory.
-
-    Args:
-        smodes_input (str): Path to the SMODES input file.
-        irrep (str): Irreducible representation argument.
-
-    Returns:
-        str: The stdout of the script execution.
     
-    Raises:
-        RuntimeError: If the script execution fails.
-    """
-    # Locate the smodes_symmadapt_abinit script dynamically
-    script_dir = Path(__file__).resolve().parent / "shared"
-    smodes_script = script_dir / "smodes_symmadapt_abinit.py"
-
-    if not smodes_script.exists():
-        raise FileNotFoundError(f"Script not found at {smodes_script}")
-
-    # Command to execute the smodes_symmadapt_abinit script
-    cmd = [
-        "python3",  # Or the appropriate Python executable
-        str(smodes_script),
-        str(smodes_input),
-        str(irrep),
-    ]
-
-    # Run the script and ensure output files are placed in the current working directory
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=Path.cwd(),  # Set the working directory to the current directory
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-        print(f"smodes_symmadapt_abinit completed successfully:\n{result.stdout}")
-        return result.stdout
-    except subprocess.CalledProcessError as e:
-        error_msg = f"Error running smodes_symmadapt_abinit:\n{e.stderr}"
-        print(error_msg)
-        raise RuntimeError(error_msg)
+    return num_datapoints, str(name), str(genstruc), min_amp, max_amp, str(sbatch_preamble)
 
 
-def energy_main(input_file, smodes_input, irrep):
+def energy_main(*args):
     print("Energy program running")
+    from .. import generate_boilerplate, run_loop_smodes_script, AbinitFile   # Delayed import
     
+    
+    if len(args) < 3:
+        raise ValueError("Missing required arguments: input_file, smodes_input, irrep")
+
+    input_file, smodes_input, irrep = args[:3]
+    run_piezo = args[3] if len(args) > 3 else False
+
+
     # Parse input file and store variables
-    parse_inputfile(input_file=input_file)
+    num_datapoints, name, genstruc, min_amp, max_amp, sbatch_preamble = parse_inputfile(input_file=input_file)
 
     # Store variables in the Abinit file
-    abinit_file = AbinitFile(filepath = genstruc)
+    smodes_file = SmodesProcessor()
 
     # Generate boilerplate
-    generate_boilerplate(str(genstruc))
 
-    # Run smodes_symmadapt_abinit
-    try:
-        run_smodes_symmadapt(smodes_input, irrep)
-    except RuntimeError as e:
-        print(f"Failed to run smodes_symmadapt_abinit: {e}")
-        raise
 
-    # Run loop_smodes.tcsh
+    # Detect instabilities
+    pass
+
+    # Input unit cell from abinit file with eigenvector and use a subclass to generate new instances of the class that will be used to write new files. 
+
+    # Detect if unstable modes exist. 
+
+
+if __name__ == "__main__":
+    energy_main()    
+
     
 
-    
 
 
 
-
-    abinit_file.unit_cell
 
 
 
