@@ -11,8 +11,7 @@ setup(
     include_package_data=True,  # Includes non-Python files specified in MANIFEST.in
     python_requires=">=3.7",  # Specify the minimum Python version
     install_requires=[
-        "numpy",
-        "shutil", 
+        "numpy", 
         "pymatgen",
         "matplotlib", 
         "scipy" 

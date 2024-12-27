@@ -1,53 +1,18 @@
-import subprocess
-import os
 from pathlib import Path
-from .energy import energy_main
-from .perturbations import perturbations_main
-from .coupling import coupling_main
-from .shared import AbinitUnitCell, UnitCell, AbinitFile
+from .energy.energy import energy_main
+from .perturbations.perturbations import perturbations_main
+from .coupling.coupling import coupling_main
 
 __all__ = [
     "energy_main",
     "pert_main",
     "couple_main",
+    "parse_inputfile"
+    "run_smodes_symmadapt"
     "AbinitUnitCell",
     "UnitCell",
     "AbinitFile",
 ]
-
-def generate_boilerplate(input_file):
-    """
-    
-    """
-    # Get the current working directory
-    current_dir = Path.cwd()
-
-    # Path to the boilerplate script
-    script_path = Path(__file__).parent / "boilerplate_generation.sh"
-
-    # Execute the script in the current directory
-    result = subprocess.run(
-        ["bash", script_path, input_file],
-        cwd=current_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-
-    # Handle script output
-    if result.returncode == 0:
-        print(result.stdout)
-    else:
-        print(f"Error: {result.stderr}")
-
-def run_loop_smodes_script():
-    """
-    
-    """
-    script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'loop_smodes.tcsh')
-
-    # Run script and wiat for it to finish
-    result = subprocess.run(['tcsh', script_path], capture_output=True, text=True )
 
 
 
@@ -68,8 +33,15 @@ def main():
             print("Error: For 'energy' program, exactly 3 arguments are required: input_file, smodes_input, irrep.")
             sys.exit(1)
 
-        # Assign the 3 arguments to the respective variables
-        input_file, smodes_input, irrep = args.inputs
+        # Ensure args.input has at least three elements
+        if len(args.input) < 3:
+            raise ValueError("At least three arguments are required: input_file, smodes_input, irrep")
+
+        # Unpack the first three arguments
+        input_file, smodes_input, irrep = args.input[:3]
+
+        # Assign default value for run_piezo if not provided
+        run_piezo = args.input[3] if len(args.input) > 3 else False
 
         energy_main(input_file=input_file, smodes_input=smodes_input, irrep=irrep)
 
@@ -80,8 +52,15 @@ def main():
         if len(args.inputs) < 3:
             print("Error: for 'perturbations' program, 3 are required: input_file, smodes_input, irrep, piezo (optional)")
 
-        # Assign variables
-        input_file, smodes_input, irrep, run_piezo=False = args.input
+        # Ensure args.input has at least three elements
+        if len(args.input) < 3:
+            raise ValueError("At least three arguments are required: input_file, smodes_input, irrep")
+
+        # Unpack the first three arguments
+        input_file, smodes_input, irrep = args.input[:3]
+
+        # Assign default value for run_piezo if not provided
+        run_piezo = args.input[3] if len(args.input) > 3 else False
 
         perturbations_main(input_file=input_file, smodes_input=smodes_input, irrep=irrep, run_piezo=run_piezo)
 
