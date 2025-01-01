@@ -1,5 +1,4 @@
 import argparse
-from . import flpz
 
 def main():
     """
@@ -9,14 +8,14 @@ def main():
     parser.add_argument('program', choices=['energy', 'perturbations', 'coupling'], help="Program type to run")
     parser.add_argument('args', nargs='*', help="Arguments for the selected program")
 
-    args = parser.parse_args()
+    # args = parser.parse_args()
 
-    if args.program == 'energy':
-        flpz.energy(*args.args)
-    elif args.program == 'perturbations':
-        flpz.perturbations(*args.args)
-    elif args.program == 'coupling':
-        flpz.coupling(*args.args)
+    # if args.program == 'energy':
+    #     flpz.energy(*args.args)
+    # elif args.program == 'perturbations':
+    #     flpz.perturbations(*args.args)
+    # elif args.program == 'coupling':
+    #     flpz.coupling(*args.args)
 
 if __name__ == "__main__":
     main()
