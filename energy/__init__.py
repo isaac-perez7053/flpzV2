@@ -1,3 +1,3 @@
-from .energy import energy_main, parse_inputfile, run_smodes_symmadapt
+from flpz.energy.energy_program import EnergyProgram
 
-__all__ = ['main']
+__all__ = ['EnergyProgram']
