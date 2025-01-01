@@ -1,3 +1,3 @@
-from .perturbations import perturbations_main 
+from flpz.perturbations.perturbations_program import PerturbationsProgram
 
-__all__ = ['main']
+__all__ = ['PerturbationsProgram']
